@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en-us">
+    <head>
+        <meta charset="utf-8">
+
+        <title>HNReplies</title>
+        <meta name="description" content="Latest Hacker News replies to a user">
+    </head>
+
+    <body onLoad="main()">
+        <div id="main-container"></div>
+
+        <script type='text/javascript'>
+            function httpGet(theUrl) {
+                var xmlHttp = new XMLHttpRequest();
+                xmlHttp.open("GET", theUrl, false);
+                xmlHttp.send(null);
+
+                return xmlHttp.responseText;
+            }
+
+            function findGetParameter(parameterName) {
+                var tmp = [];
+                var result = null;
+                var items = location.search.substr(1).split("&");
+
+                for (var index = 0; index < items.length; index++) {
+                    tmp = items[index].split("=");
+                    if (tmp[0] === parameterName) result = decodeURIComponent(tmp[1]);
+                }
+
+                return result;
+            }
+
+            function main() {
+                var user = findGetParameter('u') || '';
+                var data = JSON.parse(httpGet('https://hnreplies.ggerganov.com/get.php?u=' + user));
+
+                document.getElementById('main-container').innerHTML = '<h3>Latest replies to "' + user + '"<br></h3><hr>';
+
+                console.log(data);
+                for (const reply of data.replies) {
+                    link = 'https://news.ycombinator.com/item?id=' + reply.id;
+                    document.getElementById('main-container').innerHTML +=
+                        '<a href="' + link + '">' + link + '</a><br><br>';
+                    document.getElementById('main-container').innerHTML +=
+                        '<div style="flex-wrap: wrap;">' + reply.text + '</div><br><hr>';
+                }
+            }
+        </script>
+    </body>
+</html>
