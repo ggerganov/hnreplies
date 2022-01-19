@@ -1,3 +1,51 @@
+//
+// C++ implementation of the HNReplies service.
+//
+// The service accumulates all comments that occur on Hacker News in real-time
+// and categorizes them in a directory structure that is convenient for making
+// queries about the replies to a certain user. The directory structure is as
+// follows:
+//
+// ./data/
+//        username0/
+//                  29977271
+//                  29977272
+//                  29977279
+//        username1/
+//                  29977276
+//                  29977283
+//        some_one/
+//                  29977276
+//                  29977283
+//        .../
+//
+// The file "./data/$username/$id" contains the JSON obtained from the HN API query:
+//
+//   https://hacker-news.firebaseio.com/v0/item/$id.json
+//
+// Sample result:
+//
+//   $ cat data/mayoff/2921983
+//     {
+//         "by" : "norvig",
+//         "id" : 2921983,
+//         "kids" : [ 2922097, 2922429, 2924562, 2922709, 2922573, 2922140, 2922141 ],
+//         "parent" : 2921506,
+//         "text" : "Aw shucks, guys ... you make me blush with your compliments.<p>Tell you what, Ill make a deal: I'll keep writing if you keep reading. K?",
+//         "time" : 1314211127,
+//         "type" : "comment"
+//     }
+//
+// The above example means that item 2921983 is a comment written by user
+// "norvig" in reply to a comment or a story by user "mayoff" with id "2921506".
+//
+// The main advantage of the data organized in this way is that the items are
+// grouped by "username", so it is very easy to query for all replies to a
+// certain user.
+//
+// More info: https://github.com/ggerganov/hnreplies
+//
+
 #include "json.h"
 
 #include <errno.h>
@@ -33,6 +81,9 @@ void sigpipe_handler([[maybe_unused]] int signal) {
 #endif
 }
 
+//
+// curl functionality
+//
 namespace {
 
 struct Data {
@@ -79,7 +130,7 @@ void addTransfer(CURLM *cm, int idx, std::string && uri) {
     curl_multi_add_handle(cm, eh);
 }
 
-bool hnInit() {
+bool curlInit() {
     struct sigaction sh;
     struct sigaction osh;
 
@@ -102,7 +153,7 @@ bool hnInit() {
     return true;
 }
 
-void hnFree() {
+void curlFree() {
     curl_multi_cleanup(g_cm);
     curl_global_cleanup();
 }
@@ -177,12 +228,12 @@ void updateRequests_impl() {
 
 namespace HN {
 
-using URI = std::string;
-using ItemId = int;
-using ItemIds = std::vector<ItemId>;
+using URI      = std::string;
+using ItemId   = int;
+using ItemIds  = std::vector<ItemId>;
 using ItemData = std::map<std::string, std::string>;
 
-const URI kAPIItem = "https://hacker-news.firebaseio.com/v0/item/";
+const URI kAPIItem    = "https://hacker-news.firebaseio.com/v0/item/";
 const URI kAPIUpdates = "https://hacker-news.firebaseio.com/v0/updates.json";
 
 enum class ItemType : int {
@@ -195,25 +246,22 @@ enum class ItemType : int {
 };
 
 struct Comment {
-    std::string by = "";
+    std::string by;
     ItemId id = 0;
     ItemIds kids;
     ItemId parent = 0;
-    std::string text = "";
+    std::string text;
     uint64_t time = 0;
 };
 
 void requestJSONForURI(std::string uri) {
-    static char curURI[512];
-    snprintf(curURI, 512, "%s", uri.c_str());
-
     requestJSONForURI_impl(std::move(uri));
 }
 
 std::string getJSONForURI(const std::string & uri, int nRetries, int tRetry_ms) {
     auto json = getJSONForURI_impl(uri);
 
-    // retry until the query has been processed
+    // retry until the query has been processed or we run out of retries
     while (json.empty() && nRetries-- > 0) {
         updateRequests_impl();
         json = getJSONForURI_impl(uri);
@@ -294,7 +342,7 @@ bool same(const ItemIds & ids0, const ItemIds & ids1) {
 }
 
 int main() {
-    hnInit();
+    curlInit();
 
     HN::ItemIds idsOld;
     HN::ItemIds idsCur;
@@ -431,13 +479,15 @@ int main() {
         }
 
         const auto tElapsed = ::t_ms() - tStart;
-        printf("[I] Time: %lu ms, Comments: %d, Updated: %d, Unknown: %d, Errors: %d, Other: %d\n", tElapsed, nComments, nUpdated, nUnknown, nErrors, nOther);
+        printf("[I] Time: %6lu ms  Comments: %3d  Updated: %3d  Unknown: %3d  Errors: %3d  Other: %3d | Total requests: %7d (%lu bytes)\n",
+               tElapsed, nComments, nUpdated, nUnknown, nErrors, nOther, g_nFetches, g_totalBytesDownloaded);
+
         if (tElapsed > 30000) {
             fprintf(stderr, "[W] Update took more than 30 seconds - some data might have been missed\n");
         }
     }
 
-    hnFree();
+    curlFree();
 
     return 0;
 }
