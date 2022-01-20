@@ -7,7 +7,7 @@
 //   https://hnreplies.ggerganov.com/get.php?u=dang&print=pretty
 //
 
-$nmax = 10; // max number of replies
+$nmax = 100; // max number of replies
 
 $user_org = $_GET['u'];
 $pretty = $_GET['print'];

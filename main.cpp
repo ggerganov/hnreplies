@@ -39,9 +39,9 @@
 // The above example means that item 2921983 is a comment written by user
 // "norvig" in reply to a comment or a story by user "mayoff" with id "2921506".
 //
-// The main advantage of the data organized in this way is that the items are
-// grouped by "username", so it is very easy to query for all replies to a
-// certain user.
+// The main advantage of organizing the data in this way is that the items are
+// grouped by "username", so it is trivial to query for all replies to a certain
+// user.
 //
 // More info: https://github.com/ggerganov/hnreplies
 //
@@ -69,6 +69,7 @@
 #include <fstream>
 #include <filesystem>
 
+// max number of parallel curl requests at a time
 #define MAX_PARALLEL 64
 
 //#define DEBUG_SIGPIPE
@@ -82,9 +83,22 @@ void sigpipe_handler([[maybe_unused]] int signal) {
 }
 
 //
+// helpers
+//
+
+namespace {
+
+uint64_t t_ms() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count(); // duh ..
+}
+
+}
+
+//
 // curl functionality
 //
-namespace {
+
+namespace curl {
 
 struct Data {
     CURL *eh = NULL;
@@ -100,10 +114,6 @@ uint64_t g_totalBytesDownloaded = 0;
 std::deque<std::string> g_fetchQueue;
 std::map<std::string, std::string> g_fetchCache;
 std::array<Data, MAX_PARALLEL> g_fetchData;
-
-uint64_t t_ms() {
-    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count(); // duh ..
-}
 
 size_t writeFunction(void *ptr, size_t size, size_t nmemb, Data* data) {
     size_t bytesDownloaded = size*nmemb;
@@ -130,7 +140,7 @@ void addTransfer(CURLM *cm, int idx, std::string && uri) {
     curl_multi_add_handle(cm, eh);
 }
 
-bool curlInit() {
+bool init() {
     struct sigaction sh;
     struct sigaction osh;
 
@@ -153,12 +163,20 @@ bool curlInit() {
     return true;
 }
 
-void curlFree() {
+void cleanup() {
     curl_multi_cleanup(g_cm);
     curl_global_cleanup();
 }
 
-std::string getJSONForURI_impl(const std::string & uri) {
+// add an URI to the fetch queue
+// at some point later, we will be able to obtain the result from this query
+void requestJSONForURI(std::string uri) {
+    g_fetchQueue.push_back(std::move(uri));
+}
+
+// get the JSON result from a query that has been requested earlier
+// returns empty string if the query has not been processed yet
+std::string getJSONForURI(const std::string & uri) {
     if (auto it = g_fetchCache.find(uri); it != g_fetchCache.end()) {
         auto res = std::move(g_fetchCache[uri]);
         g_fetchCache.erase(it);
@@ -169,19 +187,10 @@ std::string getJSONForURI_impl(const std::string & uri) {
     return "";
 }
 
-uint64_t getTotalBytesDownloaded() {
-    return g_totalBytesDownloaded;
-}
-
-uint64_t getNFetches() {
-    return g_nFetches;
-}
-
-void requestJSONForURI_impl(std::string uri) {
-    g_fetchQueue.push_back(std::move(uri));
-}
-
-void updateRequests_impl() {
+// curl main loop
+// processes any pending queries in the fetch queue
+// call this function after making requests with via requestJSONForURI()
+void updateRequests() {
     CURLMsg *msg;
     int msgs_left = -1;
 
@@ -233,6 +242,7 @@ using ItemId   = int;
 using ItemIds  = std::vector<ItemId>;
 using ItemData = std::map<std::string, std::string>;
 
+// HN API
 const URI kAPIItem    = "https://hacker-news.firebaseio.com/v0/item/";
 const URI kAPIUpdates = "https://hacker-news.firebaseio.com/v0/updates.json";
 
@@ -254,17 +264,13 @@ struct Comment {
     uint64_t time = 0;
 };
 
-void requestJSONForURI(std::string uri) {
-    requestJSONForURI_impl(std::move(uri));
-}
-
 std::string getJSONForURI(const std::string & uri, int nRetries, int tRetry_ms) {
-    auto json = getJSONForURI_impl(uri);
+    auto json = curl::getJSONForURI(uri);
 
     // retry until the query has been processed or we run out of retries
     while (json.empty() && nRetries-- > 0) {
-        updateRequests_impl();
-        json = getJSONForURI_impl(uri);
+        curl::updateRequests();
+        json = curl::getJSONForURI(uri);
         std::this_thread::sleep_for(std::chrono::milliseconds(tRetry_ms));
     }
 
@@ -342,7 +348,7 @@ bool same(const ItemIds & ids0, const ItemIds & ids1) {
 }
 
 int main() {
-    curlInit();
+    curl::init();
 
     HN::ItemIds idsOld;
     HN::ItemIds idsCur;
@@ -352,9 +358,9 @@ int main() {
     while (true) {
         // query the HN API about which items have been updated
         // the API seems to provide updates every 30 seconds
-        HN::requestJSONForURI(HN::kAPIUpdates);
+        curl::requestJSONForURI(HN::kAPIUpdates);
         do {
-            updateRequests_impl();
+            curl::updateRequests();
             std::this_thread::sleep_for(std::chrono::seconds(1));
             idsCur = HN::getChangedItemsIds();
         } while (idsCur.empty());
@@ -373,11 +379,11 @@ int main() {
 
         // enque queries to the HN API about the new items
         for (const auto & id : idsCur) {
-            HN::requestJSONForURI(HN::getItemURI(id));
+            curl::requestJSONForURI(HN::getItemURI(id));
         }
 
-        // process MAX_PARALLEL of the queries
-        updateRequests_impl();
+        // process pending queries
+        curl::updateRequests();
 
         HN::ItemIds parents;
         std::map<HN::ItemId, std::string> by;
@@ -425,7 +431,7 @@ int main() {
                         // we are interested who is this comment in reply to
                         // so we enque a query about the parent for later:
                         parents.push_back(cur.parent);
-                        HN::requestJSONForURI(HN::getItemURI(cur.parent));
+                        curl::requestJSONForURI(HN::getItemURI(cur.parent));
                     }
                     break;
                 default:
@@ -480,14 +486,14 @@ int main() {
 
         const auto tElapsed = ::t_ms() - tStart;
         printf("[I] Time: %6lu ms  Comments: %3d  Updated: %3d  Unknown: %3d  Errors: %3d  Other: %3d | Total requests: %7d (%lu bytes)\n",
-               tElapsed, nComments, nUpdated, nUnknown, nErrors, nOther, g_nFetches, g_totalBytesDownloaded);
+               tElapsed, nComments, nUpdated, nUnknown, nErrors, nOther, curl::g_nFetches, curl::g_totalBytesDownloaded);
 
         if (tElapsed > 30000) {
             fprintf(stderr, "[W] Update took more than 30 seconds - some data might have been missed\n");
         }
     }
 
-    curlFree();
+    curl::cleanup();
 
     return 0;
 }

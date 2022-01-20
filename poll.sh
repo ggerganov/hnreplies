@@ -41,16 +41,16 @@
 # The above example means that item 2921983 is a comment written by user
 # "norvig" in reply to a comment or a story by user "mayoff" with id "2921506".
 #
-# The main advantage of the data organized in this way is that the items are
-# grouped by "username", so it is very easy to query for all replies to a
-# certain user.
+# The main advantage of organizing the data in this way is that the items are
+# grouped by "username", so it is trivial to query for all replies to a certain
+# user.
 #
 # This service uses the curl and jq command line tools to process new comments.
 # Even though the curl requests are ran in parallel, this script can be quite
 # slow and CPU intensive.
 #
-# If you need a more efficient way to do the same thing, checkout the C++
-# implementation of the same service in "main.cpp".
+# The "main.cpp" program contains a more efficient C++ implementation of the
+# same service.
 #
 # More info: https://github.com/ggerganov/hnreplies
 #
