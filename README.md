@@ -1,6 +1,6 @@
 # HNReplies
 
-A service for getting the latest replies to an HN user
+A service for scraping the latest replies to HN users.
 
 Sample API endpoint: https://hnreplies.ggerganov.com/get.php
 
@@ -39,12 +39,13 @@ Currently the [Hacker News forum](https://news.ycombinator.com/) lacks the funct
 In some cases this can cause a user to miss a reply in a discussion in which they had participated recently. Some users consider this to be a feature rather
 than a deficiency. In any case, this is a simple attempt to offer such functionality in the form of a 3rd party service.
 
-The HNReplies service tracks all comments that happen on HN in realtime by querying the official [HN API](https://github.com/HackerNews/API) and grouping the
-comments by their parent user. The collected data can then be used to efficiently query for the latest replies to a certain user.
+The HNReplies service tracks all comments posted on HN in realtime by querying the official [HN API](https://github.com/HackerNews/API). The comments are then
+grouped by their parent's username by storing them as files in respective directories on the disk. The collected data can then be used to efficiently query for
+the latest replies to a certain user.
 
 The service is very basic and can be easily self-hosted on a low-end machine. It depends only on [curl](https://curl.se).
 
-Although I implemented this mostly for educational purposes, maybe I it can potentially find some useful applications. For example, you can write a script
+Although I implemented this mostly for educational purposes, maybe it can potentially find some useful applications. For example, you can write a script
 that sends an e-mail notification every time someone responds to you on HN. All it takes is to query the HNReplies service with your username every ~5
 minutes and check for new replies.
 
@@ -120,33 +121,28 @@ The service performs about ~200 requests / minute to the HN API. The actual valu
 
 Sample usages are given in the [./public](./public) folder of this repo.
 
----
+- ### [./public/get.php](./public/get.php)
 
-### [./public/get.php](./public/get.php)
+  This is a simple PHP endpoint that uses the accumulated data by the HNReplies service to return the latest replies to a user.
+  I've hosted an example on https://hnreplies.ggerganov.com/ and you can use it as follows:
 
-This is a simple PHP endpoint that uses the accumulated data by the HNReplies service to return the latest replies to a user.
-I've hosted an example on https://hnreplies.ggerganov.com/ and you can use it as follows:
+  ```
+  #
+  # Get latest replies to "dang"
+  #
 
-```
-#
-# Get latest replies to "dang"
-#
+  $ curl "https://hnreplies.ggerganov.com/get.php?u=dang&print=pretty"
+  ```
+  Or directly in the browser:
 
-$ curl "https://hnreplies.ggerganov.com/get.php?u=dang&print=pretty"
-```
-Or directly in the browser:
+  https://hnreplies.ggerganov.com/get.php?u=dang&print=pretty
 
-https://hnreplies.ggerganov.com/get.php?u=dang&print=pretty
+  The returned replies are orderer chronologically. You can modify the PHP script to provide some other data that you might want.
 
-The returned replies are orderer chronologically. You can modify the PHP script to provide some other data that you might want.
 
----
+- ### [./public/index.html](./public/index.html)
 
-### [./public/index.html](./public/index.html)
+  A basic web page that sends an XHR request to the PHP endpoint and displays the results in HTML.
+  For example, checkout the following URL:
 
-A basic web page that sends an XHR request to the PHP endpoint and displays the results in HTML.
-For example, checkout the following URL:
-
-https://hnreplies.ggerganov.com/index.html?u=dang
-
----
+  https://hnreplies.ggerganov.com/index.html?u=dang
