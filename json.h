@@ -1,5 +1,5 @@
 /*! \file json.h
- *  \brief Json parsing
+ *  \brief Poor-man's JSON parser
  */
 
 #pragma once
